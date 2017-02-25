@@ -4,13 +4,6 @@ GRAM
 GRAM is a prediction framework that can use the domain knowledge in the form of directed acyclic graph (DAG).
 The prediction task could take any form such as static prediction, sequence classification, or sequential prediction.
 
-The current code trains an RNN ([Gated Recurrent Units](https://arxiv.org/abs/1406.1078)) to predict, at each timestep (i.e. visit), the diagnosis codes occurring in the next visit.
-This is denoted as *Sequential Diagnoses Prediction* in the paper. 
-In the future, we will relases another version for making a single prediction for the entire visit sequence. (e.g. Predict the onset of heart failure given the visit record)
-
-Note that the current code uses [Multi-level Clinical Classification Software for ICD-9-CM](https://www.hcup-us.ahrq.gov/toolssoftware/ccs/ccs.jsp) as the domain knowledge.
-We will release the one that uses ICD9 Diagnosis Hierarchy in the future.
-
 ####Relevant Publications
 
 GRAM implements an algorithm introduced in the following [paper](https://arxiv.org/abs/1611.07012):
@@ -18,6 +11,13 @@ GRAM implements an algorithm introduced in the following [paper](https://arxiv.o
 	GRAM: Graph-based Attention Model for Healthcare Representation Learning
 	Edward Choi, Mohammad Taha Bahadori, Le Song, Walter F. Stewart, Jimeng Sun  
 	arXiv preprint arXiv:1611.07012
+
+The current code trains an RNN ([Gated Recurrent Units](https://arxiv.org/abs/1406.1078)) to predict, at each timestep (i.e. visit), the diagnosis codes occurring in the next visit.
+This is denoted as *Sequential Diagnoses Prediction* in the paper. 
+In the future, we will relases another version for making a single prediction for the entire visit sequence. (e.g. Predict the onset of heart failure given the visit record)
+
+Note that the current code uses [Multi-level Clinical Classification Software for ICD-9-CM](https://www.hcup-us.ahrq.gov/toolssoftware/ccs/ccs.jsp) as the domain knowledge.
+We will release the one that uses ICD9 Diagnosis Hierarchy in the future.
 	
 ####Running GRAM
 
