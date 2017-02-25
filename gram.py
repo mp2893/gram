@@ -1,14 +1,20 @@
-import sys, random, time
+#################################################################
+# Code written by Edward Choi (mp2893@gatech.edu)
+# For bug report, please contact author using the email address
+#################################################################
+
+import sys, random, time, argparse
+from collections import OrderedDict
+import cPickle as pickle
 import numpy as np
+
 import theano
 import theano.tensor as T
 from theano import config
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
-import cPickle as pickle
-from collections import OrderedDict
-from sklearn.metrics import roc_auc_score
-from Queue import heapq
-import operator
+
+_TEST_RATIO = 0.2
+_VALIDATION_RATIO = 0.1
 
 def unzip(zipped):
 	new_params = OrderedDict()
@@ -22,25 +28,35 @@ def numpy_floatX(data):
 def get_random_weight(dim1, dim2, left=-0.1, right=0.1):
 	return np.random.uniform(left, right, (dim1, dim2)).astype(config.floatX)
 
+def load_embedding(options):
+	m = np.load(options['embFile'])
+	w = (m['w'] + m['w_tilde']) / 2.0
+	return w
+
 def init_params(options):
 	params = OrderedDict()
 
 	np.random.seed(0)
 	inputDimSize = options['inputDimSize']
+	numAncestors = options['numAncestors']
 	embDimSize = options['embDimSize']
 	hiddenDimSize = options['hiddenDimSize'] #hidden layer does not need an extra space
 	attentionDimSize = options['attentionDimSize']
 	numClass = options['numClass']
 
-	params['W_emb'] = get_random_weight(inputDimSize, embDimSize)
+	params['W_emb'] = get_random_weight(inputDimSize+numAncestors, embDimSize)
+	if len(options['embFile']) > 0:
+		params['W_emb'] = load_embedding(options)
+		options['embDimSize'] = params['W_emb'].shape[1]
+		embDimSize = options['embDimSize']
 
 	params['W_attention'] = get_random_weight(embDimSize*2, attentionDimSize)
 	params['b_attention'] = np.zeros(attentionDimSize).astype(config.floatX)
 	params['v_attention'] = np.random.uniform(-0.1, 0.1, attentionDimSize).astype(config.floatX)
 
-	params['W_gru_f'] = get_random_weight(embDimSize, 3*hiddenDimSize)
-	params['U_gru_f'] = get_random_weight(hiddenDimSize, 3*hiddenDimSize)
-	params['b_gru_f'] = np.zeros(3 * hiddenDimSize).astype(config.floatX)
+	params['W_gru'] = get_random_weight(embDimSize, 3*hiddenDimSize)
+	params['U_gru'] = get_random_weight(hiddenDimSize, 3*hiddenDimSize)
+	params['b_gru'] = np.zeros(3 * hiddenDimSize).astype(config.floatX)
 
 	params['W_output'] = get_random_weight(hiddenDimSize, numClass)
 	params['b_output'] = np.zeros(numClass).astype(config.floatX)
@@ -62,7 +78,7 @@ def _slice(_x, n, dim):
 		return _x[:, :, n*dim:(n+1)*dim]
 	return _x[:, n*dim:(n+1)*dim]
 
-def gru_layer(tparams, emb, direction, options):
+def gru_layer(tparams, emb, options):
 	hiddenDimSize = options['hiddenDimSize']
 	timesteps = emb.shape[0]
 	if emb.ndim == 3: n_samples = emb.shape[1]
@@ -76,8 +92,8 @@ def gru_layer(tparams, emb, direction, options):
 		h_new = z * h + ((1. - z) * h_tilde)
 		return h_new
 
-	Wx = T.dot(emb, tparams['W_gru_'+direction]) + tparams['b_gru_'+direction]
-	results, updates = theano.scan(fn=stepFn, sequences=[Wx], outputs_info=T.alloc(numpy_floatX(0.0), n_samples, hiddenDimSize), non_sequences=[tparams['U_gru_'+direction]], name='gru_layer', n_steps=timesteps)
+	Wx = T.dot(emb, tparams['W_gru']) + tparams['b_gru']
+	results, updates = theano.scan(fn=stepFn, sequences=[Wx], outputs_info=T.alloc(numpy_floatX(0.0), n_samples, hiddenDimSize), non_sequences=[tparams['U_gru']], name='gru_layer', n_steps=timesteps)
 
 	return results
 
@@ -94,7 +110,7 @@ def softmax_layer(tparams, emb):
 	output = nom / denom
 	return output
 	
-def build_model(tparams, fiveLeaves, fourLeaves, threeLeaves, twoLeaves, fiveAncestors, fourAncestors, threeAncestors, twoAncestors, options):
+def build_model(tparams, leavesList, ancestorsList, options):
 	dropoutRate = options['dropoutRate']
 	trng = RandomStreams(123)
 	use_noise = theano.shared(numpy_floatX(0.))
@@ -107,19 +123,16 @@ def build_model(tparams, fiveLeaves, fourLeaves, threeLeaves, twoLeaves, fiveAnc
 	n_timesteps = x.shape[0]
 	n_samples = x.shape[1]
 
-	fiveAttention = generate_attention(tparams, fiveLeaves, fiveAncestors)
-	fiveEmb = (tparams['W_emb'][fiveAncestors] * fiveAttention[:,:,None]).sum(axis=1)
-	fourAttention = generate_attention(tparams, fourLeaves, fourAncestors)
-	fourEmb = (tparams['W_emb'][fourAncestors] * fourAttention[:,:,None]).sum(axis=1)
-	threeAttention = generate_attention(tparams, threeLeaves, threeAncestors)
-	threeEmb = (tparams['W_emb'][threeAncestors] * threeAttention[:,:,None]).sum(axis=1)
-	twoAttention = generate_attention(tparams, twoLeaves, twoAncestors)
-	twoEmb = (tparams['W_emb'][twoAncestors] * twoAttention[:,:,None]).sum(axis=1)
+	embList = []
+	for leaves, ancestors in zip(leavesList, ancestorsList):
+		tempAttention = generate_attention(tparams, leaves, ancestors)
+		tempEmb = (tparams['W_emb'][ancestors] * tempAttention[:,:,None]).sum(axis=1)
+		embList.append(tempEmb)
 
-	emb = T.concatenate([fiveEmb, fourEmb, threeEmb, twoEmb], axis=0)
+	emb = T.concatenate(embList, axis=0)
 
 	x_emb = T.tanh(T.dot(x, emb))
-	hidden = gru_layer(tparams, x_emb, 'f', options)
+	hidden = gru_layer(tparams, x_emb, options)
 	hidden = dropout_layer(hidden, use_noise, trng, dropoutRate)
 	y_hat = softmax_layer(tparams, hidden) * mask[:,:,None]
 
@@ -133,7 +146,7 @@ def build_model(tparams, fiveLeaves, fourLeaves, threeLeaves, twoLeaves, fiveAnc
 
 	return use_noise, x, y, mask, lengths, cost, cost_noreg, y_hat
 
-def load_data(seqFile, labelFile, timeFile='', sampleSize=0.5):
+def load_data(seqFile, labelFile, timeFile=''):
 	sequences = np.array(pickle.load(open(seqFile, 'rb')))
 	labels = np.array(pickle.load(open(labelFile, 'rb')))
 	if len(timeFile) > 0:
@@ -142,13 +155,12 @@ def load_data(seqFile, labelFile, timeFile='', sampleSize=0.5):
 	np.random.seed(0)
 	dataSize = len(labels)
 	ind = np.random.permutation(dataSize)
-	nTest = int(0.15 * dataSize)
-	nValid = int(0.10 * dataSize)
+	nTest = int(_TEST_RATIO * dataSize)
+	nValid = int(_VALIDATION_RATIO * dataSize)
 
-	newDataSize = int(sampleSize * dataSize)
 	test_indices = ind[:nTest]
-	valid_indices = ind[nTest:nTest+nValid][:newDataSize]
-	train_indices = ind[nTest+nValid:][:newDataSize]
+	valid_indices = ind[nTest:nTest+nValid]
+	train_indices = ind[nTest+nValid:]
 
 	train_set_x = sequences[train_indices]
 	train_set_y = labels[train_indices]
@@ -214,7 +226,7 @@ def padMatrix(seqs, labels, options):
 	n_samples = len(seqs)
 	maxlen = np.max(lengths)
 
-	x = np.zeros((maxlen, n_samples, options['numLeaves'])).astype(config.floatX)
+	x = np.zeros((maxlen, n_samples, options['inputDimSize'])).astype(config.floatX)
 	y = np.zeros((maxlen, n_samples, options['numClass'])).astype(config.floatX)
 	mask = np.zeros((maxlen, n_samples)).astype(config.floatX)
 
@@ -246,13 +258,9 @@ def print2file(buf, outFile):
 	outfd.write(buf + '\n')
 	outfd.close()
 
-def build_tree(treeFile, rootIndex=101):
+def build_tree(treeFile):
 	treeMap = pickle.load(open(treeFile, 'rb'))
-	ancestors = treeMap.values()
-	for ancestor in ancestors:
-		ancestor.append(rootIndex)
-	ancestors = np.array(ancestors).astype('int32')
-
+	ancestors = np.array(treeMap.values()).astype('int32')
 	ancSize = ancestors.shape[1]
 	leaves = []
 	for k in treeMap.keys():
@@ -260,16 +268,14 @@ def build_tree(treeFile, rootIndex=101):
 	leaves = np.array(leaves).astype('int32')
 	return leaves, ancestors
 
-def train_GRU_RNN(
-	trainSet=None,
-	validSet=None,
-	testSet=None,
+def train_GRAM(
+	seqFile = 'seqFile.txt',
+	labelFile = 'labelFile.txt',
 	treeFile='tree.txt',
+	embFile='embFile.txt',
 	outFile='out.txt',
-	logFile='log.txt',
-	modelFile='model.txt',
 	inputDimSize= 100,
-	numLeaves=100,
+	numAncestors=100,
 	embDimSize= 100,
 	hiddenDimSize=200,
 	attentionDimSize=200,
@@ -278,27 +284,24 @@ def train_GRU_RNN(
 	numClass=26679,
 	batchSize=100,
 	dropoutRate=0.5,
-	sampleSize=0.9
+	logEps=1e-8,
+	verbose=False
 ):
 	options = locals().copy()
 
-	fiveLeaves, fiveAncestors = build_tree(treeFile+'.fiveMap', rootIndex=inputDimSize-1)
-	fourLeaves, fourAncestors = build_tree(treeFile+'.fourMap', rootIndex=inputDimSize-1)
-	threeLeaves, threeAncestors = build_tree(treeFile+'.threeMap', rootIndex=inputDimSize-1)
-	twoLeaves, twoAncestors = build_tree(treeFile+'.twoMap', rootIndex=inputDimSize-1)
-	fiveLeaves = theano.shared(fiveLeaves, name='fiveLeaves')
-	fourLeaves = theano.shared(fourLeaves, name='fourLeaves')
-	threeLeaves = theano.shared(threeLeaves, name='threeLeaves')
-	twoLeaves = theano.shared(twoLeaves, name='twoLeaves')
-	fiveAncestors = theano.shared(fiveAncestors, name='fiveAncestors')
-	fourAncestors = theano.shared(fourAncestors, name='fourAncestors')
-	threeAncestors = theano.shared(threeAncestors, name='threeAncestors')
-	twoAncestors = theano.shared(twoAncestors, name='twoAncestors')
+	leavesList = []
+	ancestorsList = []
+	for i in range(1,6): # An ICD9 diagnosis code can have at most five ancestors (including the artificial root) when using CCS multi-level grouper. 
+		leaves, ancestors = build_tree(treeFile+'.level'+str(i)+'.pk')
+		sharedLeaves = theano.shared(leaves, name='leaves'+str(i))
+		sharedAncestors = theano.shared(ancestors, name='ancestors'+str(i))
+		leavesList.append(sharedLeaves)
+		ancestorsList.append(sharedAncestors)
 	
 	print 'Building the model ... ',
 	params = init_params(options)
 	tparams = init_tparams(params)
-	use_noise, x, y, mask, lengths, cost, cost_noreg, y_hat =  build_model(tparams, fiveLeaves, fourLeaves, threeLeaves, twoLeaves, fiveAncestors, fourAncestors, threeAncestors, twoAncestors, options)
+	use_noise, x, y, mask, lengths, cost, cost_noreg, y_hat =  build_model(tparams, leavesList, ancestorsList, options)
 	get_cost = theano.function(inputs=[x, y, mask, lengths], outputs=cost_noreg, name='get_cost')
 	print 'done!!'
 	
@@ -308,6 +311,7 @@ def train_GRU_RNN(
 	print 'done!!'
 
 	print 'Loading data ... ',
+	trainSet, validSet, testSet = load_data(seqFile, labelFile)
 	n_batches = int(np.ceil(float(len(trainSet[0])) / float(batchSize)))
 	print 'done!!'
 
@@ -317,6 +321,7 @@ def train_GRU_RNN(
 	bestTestCost = 0.0
 	epochDuration = 0.0
 	bestEpoch = 0
+	logFile = outFile + '.log'
 	for epoch in xrange(max_epochs):
 		iteration = 0
 		costVec = []
@@ -330,7 +335,7 @@ def train_GRU_RNN(
 			f_update()
 			costVec.append(costValue)
 
-			if iteration % 100 == 0:
+			if iteration % 100 == 0 and verbose:
 				buf = 'Epoch:%d, Iteration:%d/%d, Train_Cost:%f' % (epoch, iteration, n_batches, costValue)
 				print buf
 			iteration += 1
@@ -353,47 +358,63 @@ def train_GRU_RNN(
 	buf = 'Best Epoch:%d, Avg_Duration:%f, Train_Cost:%f, Valid_Cost:%f, Test_Cost:%f' % (bestEpoch, epochDuration/max_epochs, bestTrainCost, bestValidCost, bestTestCost)
 	print buf
 	print2file(buf, logFile)
-	buf ='L%fD%fe%dh%da%d' % (L2, dropoutRate, embDimSize, hiddenDimSize, attentionDimSize)
-	print2file(buf, logFile)
 
-def sampleHyperparameters(L2s, dropoutRates, embDimSizes, hiddenDimSizes, attentionDimSizes, hyperList):
-	while (True):
-		L2 = random.choice(L2s)
-		dropoutRate = random.choice(dropoutRates)
-		embDimSize = random.choice(embDimSizes)
-		hiddenDimSize = random.choice(hiddenDimSizes)
-		attentionDimSize = random.choice(attentionDimSizes)
-		if (L2, dropoutRate, embDimSize, hiddenDimSize, attentionDimSize) not in hyperList: 
-			hyperList.append((L2,dropoutRate,embDimSize,hiddenDimSize,attentionDimSize))
-			break
-	return np.array(L2).astype(config.floatX), np.array(dropoutRate).astype(config.floatX), embDimSize, hiddenDimSize, attentionDimSize
+def parse_arguments(parser):
+	parser.add_argument('seq_file', type=str, metavar='<visit_file>', help='The path to the Pickled file containing visit information of patients')
+	parser.add_argument('label_file', type=str, metavar='<label_file>', help='The path to the Pickled file containing label information of patients')
+	parser.add_argument('tree_file', type=str, metavar='<tree_file>', help='The path to the Pickled files containing the ancestor information of the input medical codes. Only use the prefix and exclude ".level#.pk".')
+	parser.add_argument('out_file', metavar='<out_file>', help='The path to the output models. The models will be saved after every epoch')
+	parser.add_argument('--embed_file', type=str, default='', help='The path to the Pickled file containing the representation vectors of medical codes. If you are not using medical code representations, do not use this option')
+	parser.add_argument('--embed_size', type=int, default=128, help='The dimension size of the visit embedding. If you are providing your own medical code vectors, this value will be automatically decided. (default value: 128)')
+	parser.add_argument('--rnn_size', type=int, default=128, help='The dimension size of the hidden layer of the GRU (default value: 128)')
+	parser.add_argument('--attention_size', type=int, default=128, help='The dimension size of hidden layer of the MLP that generates the attention weights (default value: 128)')
+	parser.add_argument('--batch_size', type=int, default=100, help='The size of a single mini-batch (default value: 100)')
+	parser.add_argument('--n_epochs', type=int, default=100, help='The number of training epochs (default value: 100)')
+	parser.add_argument('--L2', type=float, default=0.001, help='L2 regularization coefficient for all weights except RNN (default value: 0.001)')
+	parser.add_argument('--dropout_rate', type=float, default=0.5, help='Dropout rate used for the hidden layer of RNN (default value: 0.5)')
+	parser.add_argument('--log_eps', type=float, default=1e-8, help='A small value to prevent log(0) (default value: 1e-8)')
+	parser.add_argument('--verbose', action='store_true', help='Print output after every 100 mini-batches (default false)')
+	args = parser.parse_args()
+	return args
+
+def calculate_dimSize(seqFile):
+	seqs = pickle.load(open(seqFile, 'rb'))
+	codeSet = set()
+	for patient in seqs:
+		for visit in patient:
+			for code in visit:
+				codeSet.add(code)
+	return max(codeSet) + 1
+
+def get_rootCode(treeFile):
+	tree = pickle.load(open(treeFile, 'rb'))
+	rootCode = tree.values()[0][1]
+	return rootCode
 
 if __name__ == '__main__':
-	seqFile = sys.argv[1]
-	treeFile = sys.argv[2]
-	labelFile = sys.argv[3]
-	outPath = sys.argv[4]
-	modelFile = ''
+	parser = argparse.ArgumentParser()
+	args = parse_arguments(parser)
 
-	numClass = 283 #number of output labels
-	numLeaves = 10437
-	numAncestors = 721
-	inputDimSize = numLeaves + numAncestors 
+	inputDimSize = calculate_dimSize(args.seq_file)
+	numClass = calculate_dimSize(args.label_file)
+	numAncestors = get_rootCode(args.tree_file+'.level2.pk') - inputDimSize + 1
 
-	max_epochs = 100
-	batchSize = 100
-	sampleSize = 1.0
-
-	L2s = [0.0001]
-	dropoutRates = [0.5]
-	embDimSizes = [500]
-	hiddenDimSizes = [500]
-	attentionDimSizes = [100]
-	hyperList = []
-
-	trainSet, validSet, testSet = load_data(seqFile, labelFile, sampleSize=sampleSize)
-	for _ in range(1):
-		L2, dropoutRate, embDimSize, hiddenDimSize, attentionDimSize = sampleHyperparameters(L2s, dropoutRates, embDimSizes, hiddenDimSizes, attentionDimSizes, hyperList)
-		outFile = outPath + '.ss' + str(sampleSize) 
-		logFile = outPath + '.ss' + str(sampleSize) + '.log'
-		train_GRU_RNN(trainSet=trainSet, validSet=validSet, testSet=testSet, treeFile=treeFile, outFile=outFile, logFile=logFile, numLeaves=numLeaves, embDimSize=embDimSize, hiddenDimSize=hiddenDimSize, attentionDimSize=attentionDimSize, numClass=numClass, inputDimSize=inputDimSize, max_epochs=max_epochs, batchSize=batchSize, L2=L2, dropoutRate=dropoutRate, sampleSize=sampleSize)
+	train_GRAM(
+		seqFile=args.seq_file, 
+		inputDimSize=inputDimSize,
+		treeFile=args.tree_file,
+		numAncestors=numAncestors, 
+		labelFile=args.label_file, 
+		numClass=numClass,
+		outFile=args.out_file, 
+		embFile=args.embed_file, 
+		embDimSize=args.embed_size, 
+		hiddenDimSize=args.rnn_size,
+		attentionDimSize=args.attention_size,
+		batchSize=args.batch_size, 
+		max_epochs=args.n_epochs, 
+		L2=args.L2, 
+		dropoutRate=args.dropout_rate, 
+		logEps=args.log_eps, 
+		verbose=args.verbose
+	)
