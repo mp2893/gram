@@ -2,7 +2,12 @@ GRAM
 =========================================
 
 GRAM is a prediction framework that can use the domain knowledge in the form of directed acyclic graph (DAG).
+Domain knowedge is incorporated in the training process using the [attention mechanism](https://arxiv.org/abs/1409.0473). 
+By introducing well established knoweldge into the training process, we can learn high quality representations of medical concepts that lead to more accurate predictions. 
 The prediction task could take any form such as static prediction, sequence classification, or sequential prediction.
+
+**t-SNE scatterplot of medical concepts trained with the combination of RNN and Multi-level Clincial Classification Software for ICD9** (The color of the dots represent the most general description of ICD9 diagnosis codes)
+![tsne](http://www.cc.gatech.edu/~echoi48/images/tsne_detailed.png "t-SNE scatterplot of medical concepts trained with the combination of RNN and Multi-level Clincial Classification Software for ICD9")
 
 #### Relevant Publications
 
