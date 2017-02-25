@@ -7,7 +7,7 @@ By introducing well established knoweldge into the training process, we can lear
 The prediction task could take any form such as static prediction, sequence classification, or sequential prediction.
 
 **t-SNE scatterplot of medical concepts trained with the combination of RNN and Multi-level Clincial Classification Software for ICD9** (The color of the dots represent the most general description of ICD9 diagnosis codes)
-![tsne](http://www.cc.gatech.edu/~echoi48/images/tsne_detailed.png "t-SNE scatterplot of medical concepts trained with the combination of RNN and Multi-level Clincial Classification Software for ICD9")
+![tsne](http://www.cc.gatech.edu/~echoi48/images/gram_tsne.png "t-SNE scatterplot of medical concepts trained with the combination of RNN and Multi-level Clincial Classification Software for ICD9")
 
 #### Relevant Publications
 
