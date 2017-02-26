@@ -39,6 +39,8 @@ We will release the one that uses ICD9 Diagnosis Hierarchy in the future.
 **STEP 2: Fastest way to test GRAM with MIMIC-III**  
 This step describes how to run, with minimum number of steps, GRAM for predicting future diagnosis codes using MIMIC-III. 
 
+0. You will first need to request access for [MIMIC-III](https://mimic.physionet.org/gettingstarted/access/), a publicly avaiable electronic health records collected from ICU patients over 11 years. 
+
 1. You can use "process_mimic.py" to process MIMIC-III dataset and generate a suitable training dataset for GRAM. 
 Place the script to the same location where the MIMIC-III CSV files are located, and run the script. 
 Instructions are described inside the script. 
