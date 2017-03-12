@@ -95,4 +95,4 @@ which can cause not only low predictive performance but also memory issues. (The
 
 **STEP 5: Hyper-parameter tuning used in the paper**
 
-The following [document](http://www.cc.gatech.edu/~echoi48/docs/gram_hyperparamters.pdf) provides the details regarding how we conducted the hyper-parameter tuning for all models used in the paper.
+This [document](http://www.cc.gatech.edu/~echoi48/docs/gram_hyperparamters.pdf) provides the details regarding how we conducted the hyper-parameter tuning for all models used in the paper.
