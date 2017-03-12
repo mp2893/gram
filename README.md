@@ -92,3 +92,7 @@ Or you can use a grouped codes as the "label file" if you are okay with reasonab
 For example, ICD9 diagnosis codes can be grouped into 283 categories by using [CCS](https://www.hcup-us.ahrq.gov/toolssoftware/ccs/ccs.jsp) groupers. 
 We STRONGLY recommend that you do this, because the number of medical codes can be as high as tens of thousands, 
 which can cause not only low predictive performance but also memory issues. (The high-end GPUs typically have only 12GB of VRAM)
+
+**STEP 5: Hyper-parameter tuning used in the paper**
+
+The following [document](http://www.cc.gatech.edu/~echoi48/docs/gram_hyperparamters.pdf) provides the details regarding how we conducted the hyper-parameter tuning for all models used in the paper.
