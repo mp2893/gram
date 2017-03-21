@@ -11,7 +11,7 @@ The prediction task could take any form such as static prediction, sequence clas
 
 #### Relevant Publications
 
-GRAM implements an algorithm introduced in the following [paper](https://arxiv.org/abs/1611.07012):
+GRAM implements the algorithm introduced in the following [paper](https://arxiv.org/abs/1611.07012):
 
 	GRAM: Graph-based Attention Model for Healthcare Representation Learning
 	Edward Choi, Mohammad Taha Bahadori, Le Song, Walter F. Stewart, Jimeng Sun  
